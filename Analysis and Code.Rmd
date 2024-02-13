@@ -1,0 +1,611 @@
+---
+title: 'Analysis in R: Partition'
+author: "Abhilasha Sawlani, Akshar Katariya, Jahnavi Selvakumar"
+date: "08/03/2021"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, eval=FALSE, include = FALSE,results='hide', message=FALSE)
+```
+
+```{r}
+knitr::opts_chunk$set(include = FALSE,results='hide', message=FALSE)
+#NLP Libraries
+library(rJava)
+library(openNLP)
+library(NLP)
+library(syuzhet)
+
+#Tidy data manipulation
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(readr)
+library(stringi)
+library(imager)
+
+#Helper library
+library(fuzzyjoin)
+
+#Graphics library
+library(ggiraphExtra)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Creating the corpus - skip this code chunk if corpus is saved
+#tamas
+tamas <- read.delim("tamas.txt") %>% mutate(author="Sahni, Bhisham", 
+            nationality="Indian",title = "Tamas", year= "1973") %>% 
+                                           mutate(year = as.integer(year))
+
+write.csv(tamas, "tamas.csv")
+
+#Train to Pakistan
+train <- read.delim("Train to Pakistan.txt")%>% 
+  mutate(author="Singh, Khushwant", nationality="Indian",
+         title = "Train to Pakistan", year= "1956") %>% mutate(year = as.integer(year))
+
+write.csv(train, "train.csv")
+
+#Pinjar
+
+pinjar <- read.delim("Pinjar.txt") %>%
+  mutate(author="Pritam, Amrita", nationality="Indian",
+         title = "Pinjar", year= "1950") %>% mutate(year = as.integer(year))
+
+write.csv(pinjar, "pinjar.csv")
+
+#Midnight's Children
+
+midnight <- read.delim("Midnight's Children.txt")%>% 
+  mutate(author="Rushdie, Salman", nationality="Indian",
+         title = "Midnight's Children", year= "1981") %>% mutate(year = as.integer(year))
+
+write.csv(midnight, "midnight.csv")
+
+#The Shadow Lines
+shadow <- read.delim("The Shadow Lines.txt") %>% 
+  mutate(author="Ghosh, Amitav", nationality="Indian",
+         title = "The Shadow Lines", year= "1989") %>% mutate(year = as.integer(year))
+
+write.csv(shadow, "shadow.csv")
+
+#Creating corpus 
+Partition <- tamas %>% 
+  bind_rows(train) %>% 
+  bind_rows(pinjar)  %>% 
+  bind_rows(midnight) %>% 
+  bind_rows(shadow) %>% group_by(title) 
+
+write.csv(Partition, "Partition.csv")
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE} 
+
+#After cleaning the Partition.csv file in Excel
+
+## 1. Word count and frequent words
+
+partition_corpus <- read.csv("Partition.csv")
+partition_corpus$text <- as.character(partition_corpus$text)
+
+
+tidy_partition <- partition_corpus %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+
+tidy_partition %>%
+  count(word, sort = TRUE)  
+
+tidy_partition %>% #Plot1
+  count(word, sort = TRUE) %>%
+  top_n(10) %>% 
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_col() +
+  labs(title = "Top ten Frequent Words in our corpus", 
+       
+       x = "Top ten Words",
+       y = "Frequency")+
+  theme_light()+
+  coord_flip()
+
+tidy_partition %>% #Plot2
+  count(title, sort = TRUE) %>%
+  top_n(5) %>% 
+  mutate(title = reorder(title, n)) %>%
+  ggplot(aes(title, n)) +
+  geom_col(width=0.8) +
+  labs(title = "Size of the books in the corpus", 
+       
+       x = "Books",
+       y = "Number of Words")+
+  theme_light()+
+  geom_text(aes(label = n)) +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+## 2. Correlations
+
+tidy_Tamas <- tidy_partition %>% filter(title == "Tamas") %>% count(word, sort = TRUE) 
+tidy_Midnight <- tidy_partition %>% filter(title == "Midnight's Children") %>% count(word, sort = TRUE) 
+tidy_shadow <- tidy_partition %>% filter(title == "The Shadow Lines")%>% count(word, sort = TRUE) 
+tidy_Train <- tidy_partition %>% filter(title == "Train to Pakistan")%>% count(word, sort = TRUE) 
+tidy_Pinjar <- tidy_partition %>% filter(title == "Pinjar")%>% count(word, sort = TRUE) 
+
+#Creating the frequency data frame for correlation
+
+frequency <- bind_rows(mutate(tidy_Tamas, author = "Sahni, Bhisham"),
+                       mutate(tidy_Midnight, author = "Rushdie, Salman"),
+                       mutate(tidy_Train, author = "Singh, Khushwant"),
+                       mutate(tidy_shadow, author = "Ghosh, Amitav"),
+                       mutate(tidy_Pinjar, author = "Pritam, Amrita")) %>% 
+  mutate(word = str_extract(word, "[a-z']+")) %>% 
+  count(author, word) %>% 
+  group_by(author) %>%
+  mutate(proportion = n / sum(n)) %>%
+  select(-n) %>%
+  spread(author, proportion) %>%
+  gather(author, proportion, `Sahni, Bhisham`:`Singh, Khushwant`)
+
+#Correlation tests between books
+
+cor.test(data = frequency[frequency$author == "Sahni, Bhisham",], 
+         ~ proportion + `Rushdie, Salman`)
+
+cor.test(data = frequency[frequency$author == "Singh, Khushwant",], 
+         ~ proportion + `Rushdie, Salman`)
+
+cor.test(data = frequency[frequency$author == "Sahni, Bhisham",], 
+         ~ proportion + `Pritam, Amrita`)
+
+cor.test(data = frequency[frequency$author == "Singh, Khushwant",],
+         ~ proportion + `Pritam, Amrita`)
+
+cor.test(data = frequency[frequency$author == "Singh, Khushwant",],
+         ~ proportion + `Ghosh, Amitav`)
+
+cor.test(data = frequency[frequency$author == "Sahni, Bhisham",], 
+         ~ proportion + `Ghosh, Amitav`)
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+##3 For Sentiment Analysis and NER 
+#collapsing text column
+corpus_text <- read.csv("Partition.csv") %>%
+  group_by(title) %>% select(-X) %>% 
+  mutate(text = str_c(text, sep = " ", collapse = " ")) %>%
+  distinct() %>%
+  ungroup() 
+
+#converting to nested string object
+corpus_text_str <- corpus_text %>%
+  group_by(title) %>%
+  mutate(text = list(as.String(text)))
+
+#setting up the NLP pipeline
+wordAnnotator <- Maxent_Word_Token_Annotator(language = "en")
+sentenceAnnotator <- Maxent_Sent_Token_Annotator(language = "en")
+characterAnnotatorEN <- Maxent_Entity_Annotator(language = "en", kind = "person")
+locationAnnotatorEN <- Maxent_Entity_Annotator(language = "en", kind = "location")
+
+pipeline <- list(sentenceAnnotator,
+                 wordAnnotator,
+                 characterAnnotatorEN,
+                 locationAnnotatorEN)
+```
+  
+  
+```{r include = FALSE,results='hide', message=FALSE}
+#Chunking and Extracting Entities
+
+full_df = as.data.frame(NULL)
+chunk_size = 50000
+
+for (j in 1:nrow(corpus_text_str)) {
+  #get number of chunks
+  chunk <- nchar(corpus_text_str$text[j]) %/% chunk_size
+  text <- unlist(corpus_text_str$text[j])
+  text <- as.String(text)
+  
+  #Loop runs through the text section by section and reads each chunk into a df
+  
+  for (i in 1:chunk) {
+    print(paste0(
+      "Processing title: ",
+      corpus_text_str$title[j],
+      " - section ",
+      i,
+      " of ",
+      chunk
+    ))
+    temp_df = NULL
+    
+    if (i == 1) {
+      m = 1
+    }
+    
+    if (i == chunk) {
+      m = n + 1
+      n = (nchar(text))
+    }
+    else{
+      n <- m + chunk_size
+    }
+    
+    temp_string = text[m, n]
+    
+    temp_ann <- NLP::annotate(temp_string, pipeline)
+    
+    temp_df <-  temp_ann %>%
+      as.data.frame %>% 
+      filter(type != "word")
+    
+    temp_df <- temp_df %>%
+      mutate(words = str_sub(
+        as.character(temp_string),
+        start = temp_df$start,
+        end = temp_df$end
+      )) %>%
+      unnest_wider(features)
+    
+    temp_df <- temp_df %>%
+      mutate(author = corpus_text_str$author[j], title = corpus_text_str$title[j],
+             nationality = corpus_text_str$nationality[j], year = corpus_text_str$year[j])
+    
+    
+    #stitch it all together
+    full_df <- full_df %>%
+      bind_rows(temp_df)
+    
+    m <- m + chunk_size
+  }
+}
+
+full_df_backup <- full_df
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Removing punctuation
+full_df <-  full_df %>%
+  mutate(words = str_remove_all(words, '[:punct:]'))
+
+#Realigning the columns
+full_df <- full_df %>% 
+  relocate(c("author","title", "nationality", "year"),.before = 1) %>% 
+  select(-id, -constituents) 
+
+write.csv(full_df, "annotation_backup.csv") 
+
+#Splitting up the table
+df1 <- read.csv("annotation_backup.csv") %>%
+  filter(type == "sentence") %>%
+  mutate(sentence_nr = row_number()) %>%
+  select(author, title, year, words, sentence_nr)
+
+df2 <-  full_df %>%
+  filter(type == "entity") %>%
+  mutate(record = row_number()) %>% 
+  select(author, title, words, kind) %>% 
+  distinct()
+
+#Saving the entities file twice - one for NER and another for sentiment analysis on custom words related to hypothesis
+
+write.csv(df2, "pre_join_clean_entities_NER.csv")
+write.csv(df2, "pre_join_clean_entities_SA.csv")
+
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#1. Sentiment Analysis for custom words
+#Joining the two sections after replacing the entities with custom words 
+pre_join <- read.csv("pre_join_clean_entities_SA.csv")
+
+pre_join <- pre_join %>% 
+  select(words, kind)
+
+full_join_df <- fuzzy_join(df1, pre_join, match_fun = stri_detect_regex, by = "words", mode = "inner")
+
+full_join_df <- full_join_df %>% distinct ()
+
+write.csv(full_join_df, "full_join_df_SA.csv")
+
+#Cleaning up the table
+full_join_df_clean <-  read.csv("full_join_df_SA.csv") %>%
+  rename_at(.vars = vars(ends_with(".x")),
+            .funs = funs(sub("[.]x$", "", .))) %>%
+  rename(entity = words.y)
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Sentiment Analysis
+#Unnesting Sentences
+entities_unnest <- full_join_df_clean %>%
+  unnest_tokens(word, words)
+
+#Peeling off sentiments
+entities_sentiment <- entities_unnest %>%
+  group_by(author, title, kind) %>%
+  inner_join(get_sentiments("nrc")) %>% 
+  count(sentence_nr, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+#Recombining Sentiments with Entities
+entities_matches_sentiment <- entities_unnest %>%
+  inner_join(entities_sentiment) %>%
+  distinct_at(vars(-word))
+
+#Final tally - summing up by author, title, entity, kind
+ner_total_sentiment <- entities_matches_sentiment %>% 
+  group_by(author, title, entity, kind) %>%  
+  summarise(total = mean(sentiment)) 
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Visualization
+#Entities grouped by title
+# Change filter to nations,actors, religion, language, space, caste
+ner_total_sentiment %>%
+  group_by(entity) %>%
+  filter(kind=="religion") %>% 
+  mutate(entity = reorder(entity, total)) %>% 
+  ggplot(aes(entity, y = total, fill = title)) +
+  geom_col(width=0.8) +
+  labs(title = "Sentiment Analysis", 
+                   
+                   x = "Words related to Religion",
+                   y = "Net Sentiment") +
+  facet_wrap( ~ title, scales = "free") +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Entities across the corpus
+ner_total_sentiment2 <- entities_matches_sentiment %>% 
+  group_by(entity, kind) %>%  
+  summarise(total = mean(sentiment)) 
+
+ner_total_sentiment2 %>% filter(kind=="religion") %>% 
+  ggplot(aes(entity, y = total)) +
+  geom_col(width=0.8) +
+  labs(title = "Sentiment Analysis", 
+       
+       x = "Words related to Religion",
+       y = "Net Sentiment") +
+  theme_light()+
+  coord_flip()
+
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#radar plots
+radar_facet <- entities_matches_sentiment %>%
+  select(-positive,-negative,-sentiment) %>% 
+  filter(kind == "nations") %>%
+  group_by(title, entity, kind) %>%
+  summarise(across(anger:trust, sum)) %>%
+  mutate(total = rowSums(across(where(is.numeric))))  %>%
+  arrange(desc(total)) %>%
+  head(15)  %>% 
+  mutate(across(anger:trust, .fns = ~ round((. / total) * 100))) %>%
+  select(-total)
+
+ggRadar(
+  data = radar_facet,
+  mapping = aes(color = kind, facet = entity),
+  rescale = FALSE,
+  interactive = TRUE,
+  use.label = TRUE,
+  size = 2,
+  legend.position = "right"
+)
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#2. NER
+#Joining the two sections after slightly cleaning the entities
+pre_join <- read.csv("pre_join_clean_entities_NER.csv")
+
+pre_join <- pre_join %>% 
+  select(words, kind)
+
+full_join_df <- fuzzy_join(df1, pre_join, match_fun = stri_detect_regex, by = "words", mode = "inner")
+
+full_join_df <- full_join_df %>% 
+  distinct()
+
+write.csv(full_join_df, "full_join_df_NER.csv")
+
+#Cleaning up the table
+full_join_df_clean <-  full_join_df %>%
+  rename_at(.vars = vars(ends_with(".x")),
+            .funs = funs(sub("[.]x$", "", .))) %>%
+  rename(entity = words.y)
+
+write.csv(full_join_df_clean, "entities_raw_NER.csv")
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Sentiment analysis
+#Cleaning up entities in Excel
+clean_entities <- read.csv("entities_raw_NER.csv", stringsAsFactors = FALSE)
+
+#Unnesting Entities
+entities_unnest <- clean_entities %>%
+  unnest_tokens(word, words)
+
+#Peeling off the sentiments
+entities_sentiment <- entities_unnest %>%
+  group_by(author, title) %>%
+  inner_join(get_sentiments("nrc")) %>% 
+  count(sentence_nr, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+#Recombining sentiments with entities
+entities_matches_sentiment <- entities_unnest %>%
+  inner_join(entities_sentiment) %>%
+  distinct_at(vars(-word))
+
+#Final Tally
+ner_total_sentiment <- entities_matches_sentiment %>% 
+  group_by(author, title, entity, kind) %>%  
+  summarise(total = mean(sentiment))
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Cleaning the persons and locations separately to remove overlaps
+ner_total_sentiment_persons <- ner_total_sentiment %>% filter(kind=="person")
+write.csv(ner_total_sentiment_persons, "ner_total_sentiment_persons.csv")
+ner_total_sentiment_location <- ner_total_sentiment %>% filter(kind=="location")
+write.csv(ner_total_sentiment_location, "ner_total_sentiment_location.csv")
+
+#reading the cleaned file and re-attaching it with the total sentiments file
+ner_total_sentiment_persons <- read.csv("ner_total_sentiment_persons.csv") %>% select(-X)
+ner_total_sentiment_location <- read.csv("ner_total_sentiment_location.csv") %>% select(-X)
+ner_total_sentiment <- ner_total_sentiment_persons %>% bind_rows(ner_total_sentiment_location) 
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Visualization
+#Top 10 characters and locations based on positive or negative sentiment
+#By person
+ner_total_sentiment %>%
+  group_by(title) %>%
+  filter(kind == "person") %>%
+  top_n(10) %>% 
+  mutate(entity = reorder(entity, total)) %>% 
+  ggplot(aes(entity, y = total, fill = title)) +
+  geom_col(width=0.8) +
+  labs(title = "Top 10 Characters surrounded by positive sentiment", 
+                   
+                   x = "Characters",
+                   y = "Net Sentiment") +
+  facet_wrap( ~ title, scales = "free") +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+ner_total_sentiment %>%
+  group_by(title) %>%
+  filter(kind == "person") %>%
+  top_n(-10) %>% 
+  mutate(entity = reorder(entity, (desc(total)))) %>%  
+  ggplot(aes(entity, y = total, fill = title)) +
+  geom_col(width=0.8) +
+  labs(title = "Top 10 Characters surrounded by negative sentiment", 
+       
+       x = "Characters",
+       y = "Net Sentiment") +
+  facet_wrap( ~ title, scales = "free") +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#By location
+ner_total_sentiment %>%
+  group_by(title) %>%
+  filter(kind == "location") %>%
+  top_n(10) %>% 
+  mutate(entity = reorder(entity, total)) %>% 
+  ggplot(aes(entity, y = total, fill = title)) +
+  geom_col(width=0.8) + 
+  labs(title = "Top 10 Locations surrounded by positive sentiment", 
+                    
+                    x = "Locations",
+                    y = "Net Sentiment") +
+  facet_wrap( ~ title, scales = "free") +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+ner_total_sentiment %>%
+  group_by(title) %>%
+  filter(kind == "location") %>%
+  top_n(-10) %>% 
+  mutate(entity = reorder(entity, (desc(total)))) %>%  
+  ggplot(aes(entity, y = total, fill = title)) +
+  geom_col(width=0.8) +
+  labs(title = "Top 10 Locations surrounded by negative sentiment", 
+       
+       x = "Locations",
+       y = "Net Sentiment") +
+  facet_wrap( ~ title, scales = "free") +
+  coord_flip()
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#radar plot: characters with most sentiments
+radar_facet <- entities_matches_sentiment %>%
+  select(-positive,-negative,-sentiment) %>% 
+  filter(kind == "person", title == "Midnight's Children")  %>%  
+  group_by(title, entity, kind) %>%  
+  summarise(across(anger:trust, sum)) %>%
+  mutate(total = rowSums(across(where(is.numeric))))  %>%
+  arrange(desc(total)) %>%
+  head(10)  %>% 
+  mutate(across(anger:trust, .fns = ~ round((. / total) * 100))) %>%
+  select(-total)
+
+ggRadar(
+  data = radar_facet,
+  mapping = aes(color = title, facet = entity),
+  rescale = FALSE,
+  interactive = TRUE,
+  use.label = TRUE,
+  size = 2,
+  legend.position = "right"
+)
+```
+
+
+```{r include = FALSE,results='hide', message=FALSE}
+#Radar plot by the highest positive or negative emotion
+radar_facet_sentiment <- entities_matches_sentiment %>%
+  filter(kind == "person", title=="Midnight's Children") %>%
+  group_by(title, entity, kind) %>%
+  summarise(across(anger:sentiment, sum)) %>%
+  arrange(desc(sentiment))  %>%
+  head(10)  %>% 
+  select(-positive,-negative,-sentiment)
+
+ggRadar(
+  data = radar_facet_sentiment,
+  mapping = aes(color = title, facet = entity),
+  rescale = FALSE,
+  interactive = TRUE,
+  use.label = TRUE,
+  size = 2,
+  legend.position = "right"
+)
+```
+
